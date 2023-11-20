@@ -246,7 +246,7 @@ void SIC_pr(double lambda_IoT, double alpha, double noise) {
 
 
 //Power allocation
-void PA_NOMA_pr(double lambda_IoT, double alpha, double noise, double L) {
+void PA_NOMA_pr(double lambda_IoT, double alpha, double noise, double L, int C) {
     double success = 0;
     cout << "pass loss exp : " << alpha << endl;
     
@@ -296,6 +296,7 @@ void PA_NOMA_pr(double lambda_IoT, double alpha, double noise, double L) {
         //ノイズを入れるならノイズは送信電力の比にする
         double SI = 0, si = 0, coef = 0.0;
         vector<double> acl(L, 0); //原点セル基地局へのアクセスリスト．0以外の値が既に格納されていれば衝突
+        vector<vector<double>> ACL(C, vector<double>(L, 0));
         bool fail_flag = false;
         
         //原点デバイス
@@ -311,8 +312,8 @@ void PA_NOMA_pr(double lambda_IoT, double alpha, double noise, double L) {
         //端末情報を初期化
         for (int i = 1; i < num_IoT; i++) {
             pair<double, double> device_pos = coordinate();
-            //device.at(i).pos = device_pos;
             double dst_to_FBS = cal_dst(device_pos, FBS_pos);
+            int channel = rand() % C;
             
             /* デバイスがすること（原点セルの座標だけ可視化する場合）
              1.原点セルの基地局との距離を計算し，離れてたらただ干渉信号として足す
@@ -388,7 +389,7 @@ void PA_NOMA_pr(double lambda_IoT, double alpha, double noise, double L) {
 
 
 //Throughput of Power allocation
-void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L) {
+void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C) {
     double success = 0;
     cout << "pass loss exp : " << alpha << endl;
     
@@ -431,9 +432,13 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L) {
         int num_near_BS = (int)near_BS_pos.size();  //参照避けによる高速化
         
         //ノイズを入れるならノイズは送信電力の比にする
-        double SI = 0, si = 0, coef = 0.0;
-        vector<double> acl(L, 0); //原点セル基地局へのアクセスリスト．0以外の値が既に格納されていれば衝突
-        int fail_flag = L;
+        double SI = 0, coef = 0.0;
+        vector<double> IF_in_cell(C, 0);
+        //vector<double> acl(L, 0); //原点セル基地局へのアクセスリスト．0以外の値が既に格納されていれば衝突
+        //int fail_flag = L;
+        vector<vector<double>> ACL(C, vector<double>(L, 0));
+        vector<int> FAIL_FLAG(C, L);
+        
         //vector<double> LV_SI(L, 0);  //レベル毎に干渉信号を足して，SIC適用後の計算を可能にする
         //vector<int> acl; //原点セル基地局へのアクセスリスト
         vector<terminal> device(num_IoT);
@@ -441,9 +446,8 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L) {
         //端末情報を初期化
         for (int i = 1; i < num_IoT; i++) {
             pair<double, double> device_pos = coordinate();
-            device.at(i).pos = device_pos;
             double dst_to_FBS = cal_dst(device.at(i).pos, origin);
-            device.at(i).dst_to_FBS = dst_to_FBS;
+            int channel = rand() % C;
             
             /* デバイスがすること（原点セルの座標だけ可視化する場合）
              1.原点セルの基地局との距離を計算し，離れてたらただ干渉信号として足す
@@ -479,10 +483,12 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L) {
                 }
                 if (cell_num == 0) { //原点セルにデバイスがある場合
                     coef = theta * pow(theta + 1, L - level - 1) * H;
-                    si += coef;  //原点セルの干渉信号和．自分の信号含む
-                    if (acl.at(level) == 0) acl.at(level) = coef;
+                    IF_in_cell.at(channel) += coef;
+                    //si += coef;  //原点セルの干渉信号和．自分の信号含む
+                    if (ACL.at(level).at(channel) == 0) ACL.at(level).at(channel) = coef; //(acl.at(level) == 0) acl.at(level) = coef;
                     else {
-                        fail_flag = level; //このレベルの衝突フラグを立てる
+                        FAIL_FLAG.at(channel) = level;
+                        //fail_flag = level; //このレベルの衝突フラグを立てる
                     }
                 } else {
                     SI += theta * pow(theta + 1, L - level - 1) * H * pow(dst_to_NBS, alpha) / pow(dst_to_FBS, alpha);
@@ -491,13 +497,17 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L) {
             
         }
         
-        for (int i = 0; i < fail_flag; i++) {
-            double P  = acl.at(i);
-            si -= P;
-            double SINR = P / (SI + si + noise);
-            if (SINR > theta) success++;
-            else break;
+        for (int j = 0; j < C; j++) {
+            int FF = FAIL_FLAG.at(j);
+            for (int i = 0; i < FF; i++) {
+                double P  = ACL.at(j).at(i); //チャネルj，レベルi の電力 //acl.at(i);
+                IF_in_cell.at(j) -= P;//si -= P;
+                double SINR = P / (SI / (double)C + IF_in_cell.at(j) + noise);
+                if (SINR > theta) success++;
+                else break;
+            }
         }
+        
         
         //cout << s << endl;
         
@@ -616,14 +626,16 @@ int main() {
         SIC_pr(k, alpha, 0);
     } else if (key == 2) {
         double L; cout << "Power level : "; cin >> L; cout << endl;
+        int C; cout << "Channel num : "; cin >> C; cout << endl;
         filename = to_string((int)k) + "_NOMA_" + to_string((int)L) + ".txt";
         outputfile.open(filename);
-        PA_NOMA_pr(k, alpha, 0, L);
+        PA_NOMA_pr(k, alpha, 0, L, C);
     } else if (key == 3) {
         double L; cout << "Power level : "; cin >> L; cout << endl;
+        int C; cout << "Channel num : "; cin >> C; cout << endl;
         filename = to_string((int)k) + "_NOMA_" + to_string((int)L) + "thp.txt";
         outputfile.open(filename);
-        PA_NOMA_thp(k, alpha, 0, L);
+        PA_NOMA_thp(k, alpha, 0, L, C);
     }
 
 
