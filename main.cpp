@@ -6,7 +6,7 @@ float inf = numeric_limits<float>::infinity();
 using ll = long long;
 const double radius = 100;
 const double GAMMA = pow(10, 6.0 / 10.0);
-const double end_time = 10000;
+const double end_time = 1000;
 constexpr double PI = 3.14159265358979323846264338;
 const double theta = pow(10, 0.4);
 //const double delta = 2.0 / pass_loss_exponent;
@@ -58,14 +58,23 @@ double my_rand(double Min, double Max) {
 
 //円形領域内の座標をランダムに取得
 pair<double, double> coordinate() {
-    //init_genrand(i);
-    double r = radius * sqrt(urand()); //[0, 1)
-    double theta = PI * (2. * urand() - 1.); //(-1, 1)
-    while (theta < -PI || PI < theta) {
-        theta = PI * (2. * urand() - 1.);
+    double x, y;
+    while (true) {
+        x = urand();
+        y = urand();
+        double r_sq = x * x + y * y;
+        if (r_sq < 1.) break;
     }
-    double x = r * cos(theta);
-    double y = r * sin(theta);
+    x *= radius;
+    y *= radius;
+    
+//    double r = radius * sqrt(urand()); //[0, 1)
+//    double theta = PI * (2. * urand() - 1.); //(-1, 1)
+//    while (theta < -PI || PI < theta) {
+//        theta = PI * (2. * urand() - 1.);
+//    }
+//    double x = r * cos(theta);
+//    double y = r * sin(theta);
     pair<double, double> pos = make_pair(x, y);
     return pos;
 }
@@ -299,6 +308,9 @@ void PA_NOMA_pr(double lambda_IoT, double alpha, double noise, double L, int C) 
         vector<vector<double>> ACL(C, vector<double>(L, 0));
         bool fail_flag = false;
         
+        vector<double> IF_in_cell(C, 0);
+        vector<int> FAIL_FLAG(C, L);
+        
         //原点デバイス
         double dst_0 = cal_dst(origin, FBS_pos), level_d0;
         for (int l = L - 1; ;l--) { //電力レベル決定
@@ -308,145 +320,13 @@ void PA_NOMA_pr(double lambda_IoT, double alpha, double noise, double L, int C) 
             }
         }
         double P = theta * pow(theta + 1, L - level_d0 - 1) * exp_dist(1.0);
+        int cha_d0 = rand() % C;
+        ACL.at(cha_d0).at(level_d0) = P;
         
         //端末情報を初期化
         for (int i = 1; i < num_IoT; i++) {
             pair<double, double> device_pos = coordinate();
             double dst_to_FBS = cal_dst(device_pos, FBS_pos);
-            int channel = rand() % C;
-            
-            /* デバイスがすること（原点セルの座標だけ可視化する場合）
-             1.原点セルの基地局との距離を計算し，離れてたらただ干渉信号として足す
-             〜近い場合
-             1.（比較的近い基地局リストの）全基地局との距離を計算して，一番近い基地局を探す．
-             2.基地局までの距離から，割り当てられる送信電力を計算する
-             3.
-             〜原点セルにデバイスがある場合　割り当てられた電力で信号を足す（フェージングは推定できないとする）
-             〜原点セル以外の場合　原点セルの基地局への干渉信号として電力を足す
-             */
-            
-            double H = exp_dist(1.0);
-            if (dst_to_FBS > 20.0) {
-                SI += H / pow(dst_to_FBS, alpha);
-            } else {
-                double dst_to_NBS = inf;
-                int cell_num = 0, level = 0;
-                for (int k = 0; k < num_near_BS; k++) {
-                    double tmp_dst = cal_dst(device_pos, near_BS_pos.at(k));
-                    if (tmp_dst < dst_to_NBS) {
-                        dst_to_NBS = tmp_dst;
-                        cell_num = k;
-                    }
-                }
-                for (int l = L - 1; ;l--) { //電力レベル決定
-                    if (sqrt((double)l / L) < dst_to_NBS) { //Radius.at(l) < dst_to_NBS
-                        level = l;
-                        break;
-                    }
-                }
-                if (cell_num == 0) { //原点セルにデバイスがある場合
-                    coef = theta * pow(theta + 1, L - level - 1) * H;
-                    if (level < level_d0) { //原点デバイスより高いレベルの信号がある場合
-                        if (acl.at(level) == 0) acl.at(level) = coef;
-                        else {
-                            fail_flag = true; //高レベルで衝突，送信失敗
-                            break;
-                        }
-                    } else si += coef;  //原点セル，下位電力レベルの干渉信号和
-                } else {
-                    SI += theta * pow(theta + 1, L - level - 1) * H * pow(dst_to_NBS, alpha) / pow(dst_to_FBS, alpha);
-                }
-            }
-            
-        }
-        
-        int flag = 0;
-        if (!fail_flag) {
-            double SINR = P / (SI + si - P + noise);
-            if (SINR > theta) {
-                flag = 1;
-                success++;
-            }
-        }
-        
-        //cout << s << endl;
-
-        outputfile << flag << " " << dst_0 << endl;
-        
-        //進捗状況を表示
-        double progress = t / end_time;
-        if (progress > 0.8 && p_flag[3]) {cout << "...80%"; p_flag[3] = false;}
-        else if (progress > 0.6 && p_flag[2]) {cout << "...60%"; p_flag[2] = false;}
-        else if (progress > 0.4 && p_flag[1]) {cout << "...40%"; p_flag[1] = false;}
-        else if (progress > 0.2 && p_flag[0]) {cout << "...20%"; p_flag[0] = false;}
-    }
-    cout << "...100%" << endl;
-    cout << success / end_time << endl;
-    
-}
-
-
-
-
-//Throughput of Power allocation
-void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C) {
-    double success = 0;
-    cout << "pass loss exp : " << alpha << endl;
-    
-    bool p_flag[4] = {true, true, true, true};
-//    double R_L3[] = {0, 0.517848, 0.780638};
-//    double R_L4[] = {0, 0.448469, 0.659178, 0.839081};
-//    double R_L5[] = {0, 0.401123, 0.581634, 0.730387, 0.864729};
-//    vector<double> Radius;
-//    for (int i = 0; i <= L; i++) {
-//        Radius.push_back(sqrt((double)i / L));
-//        if (L == 3) {
-//            Radius.push_back(R_L3[i]);
-//        } else if (L == 4) {
-//            Radius.push_back(R_L4[i]);
-//        } else if (L == 5) {
-//            Radius.push_back(R_L5[i]);
-//        } else {
-//            cout << "Set power level 3 ~ 5" << endl;
-//            return;
-//        }
-//    }
-    
-    cout << "Progress is 0%";
-    for (int t = 0; t < end_time; t++) {
-        int num_IoT = poisson_dist(PI * radius * radius * lambda_IoT);
-        int num_BS = poisson_dist(PI * radius * radius * lambda_BS);
-        //BSの座標を設定
-        pair<double, double> origin = make_pair(0, 0);
-        vector<pair<double, double>> BS_pos(num_BS);
-        vector<pair<double, double>> near_BS_pos; //原点に近いセルだけ電力制御することにする．近い座標だけ保存
-        //pair<double, double> FBS_pos; //Focused Base station（原点のデバイスから最も近い基地局）
-        near_BS_pos.push_back(origin);
-        for (int i = 0; i < num_BS; i++) {
-            BS_pos.at(i) = coordinate();
-            double dst = cal_dst(origin, BS_pos.at(i));
-            if (dst < 3.0) {
-                near_BS_pos.push_back(BS_pos.at(i));
-            }
-        }
-        int num_near_BS = (int)near_BS_pos.size();  //参照避けによる高速化
-        
-        //ノイズを入れるならノイズは送信電力の比にする
-        double SI = 0, coef = 0.0;
-        vector<double> IF_in_cell(C, 0);
-        //vector<double> acl(L, 0); //原点セル基地局へのアクセスリスト．0以外の値が既に格納されていれば衝突
-        //int fail_flag = L;
-        vector<vector<double>> ACL(C, vector<double>(L, 0));
-        vector<int> FAIL_FLAG(C, L);
-        
-        //vector<double> LV_SI(L, 0);  //レベル毎に干渉信号を足して，SIC適用後の計算を可能にする
-        //vector<int> acl; //原点セル基地局へのアクセスリスト
-        vector<terminal> device(num_IoT);
-        device.at(0).pos = origin;
-        //端末情報を初期化
-        for (int i = 1; i < num_IoT; i++) {
-            pair<double, double> device_pos = coordinate();
-            double dst_to_FBS = cal_dst(device.at(i).pos, origin);
             int channel = rand() % C;
             
             /* デバイスがすること（原点セルの座標だけ可視化する場合）
@@ -478,18 +358,15 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C)
                         break;
                     }
                 }
-                for (int l = 1; l <= L; l++) {
-                    
-                }
-                if (cell_num == 0) { //原点セルにデバイスがある場合
+                if (cell_num == 0 && channel == cha_d0) { //原点セルにデバイスがある，かつチャネルが同じ場合
                     coef = theta * pow(theta + 1, L - level - 1) * H;
-                    IF_in_cell.at(channel) += coef;
-                    //si += coef;  //原点セルの干渉信号和．自分の信号含む
-                    if (ACL.at(level).at(channel) == 0) ACL.at(level).at(channel) = coef; //(acl.at(level) == 0) acl.at(level) = coef;
-                    else {
-                        FAIL_FLAG.at(channel) = level;
-                        //fail_flag = level; //このレベルの衝突フラグを立てる
-                    }
+                    if (level < level_d0) { //原点デバイスより高いレベルの信号がある場合
+                        if (ACL.at(channel).at(level) == 0) ACL.at(channel).at(level) = coef; //(acl.at(level) == 0) acl.at(level) = coef;
+                        else {
+                            fail_flag = true; //高レベルで衝突，送信失敗
+                            break;
+                        }
+                    } else si += coef;  //原点セル，下位電力レベルの干渉信号和
                 } else {
                     SI += theta * pow(theta + 1, L - level - 1) * H * pow(dst_to_NBS, alpha) / pow(dst_to_FBS, alpha);
                 }
@@ -497,22 +374,18 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C)
             
         }
         
-        for (int j = 0; j < C; j++) {
-            int FF = FAIL_FLAG.at(j);
-            for (int i = 0; i < FF; i++) {
-                double P  = ACL.at(j).at(i); //チャネルj，レベルi の電力 //acl.at(i);
-                IF_in_cell.at(j) -= P;//si -= P;
-                double SINR = P / (SI / (double)C + IF_in_cell.at(j) + noise);
-                if (SINR > theta) success++;
-                else break;
+        int flag = 0;
+        if (!fail_flag) {
+            double SINR = P / (SI / (double)C + si + noise); //-Pしてた...
+            if (SINR > theta) {
+                flag = 1;
+                success++;
             }
         }
         
-        
         //cout << s << endl;
-        
-        outputfile << success / end_time << endl;
-        
+
+        outputfile << flag << " " << dst_0 << endl;
         
         //進捗状況を表示
         double progress = t / end_time;
@@ -527,14 +400,160 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C)
 }
 
 
+
+
+//Throughput of Power allocation
+void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C) {
+    double success = 0;
+    cout << "pass loss exp : " << alpha << endl;
+    
+    bool p_flag[4] = {true, true, true, true};
+    
+    cout << "Progress is 0%";
+    for (int t = 0; t < end_time; t++) {
+        int num_IoT = poisson_dist(PI * radius * radius * lambda_IoT);
+        int num_BS = poisson_dist(PI * radius * radius * lambda_BS);
+        //BSの座標を設定
+        pair<double, double> origin = make_pair(0, 0);
+        vector<pair<double, double>> BS_pos(num_BS);
+        vector<pair<double, double>> near_BS_pos; //原点に近いセルだけ電力制御することにする．近い座標だけ保存
+        //pair<double, double> FBS_pos; //Focused Base station（原点のデバイスから最も近い基地局）
+        near_BS_pos.push_back(origin);
+        for (int i = 0; i < num_BS; i++) {
+            BS_pos.at(i) = coordinate();
+            double dst = cal_dst(origin, BS_pos.at(i));
+            if (dst < 3.0) {
+                near_BS_pos.push_back(BS_pos.at(i));
+            }
+        }
+        int num_near_BS = (int)near_BS_pos.size();  //参照避けによる高速化
+        
+        //ノイズを入れるならノイズは送信電力の比にする
+        double SI = 0, coef = 0.0;
+        vector<double> IF_in_cell(C, 0);
+        vector<vector<vector<double>>> ACL(C, vector<vector<double>>(L, vector<double>(1000, 0)));
+        vector<int> FAIL_FLAG(C, L);
+        //vector<double> acl(L, 0); //原点セル基地局へのアクセスリスト．0以外の値が既に格納されていれば衝突
+        //int fail_flag = L;
+        
+        //vector<double> LV_SI(L, 0);  //レベル毎に干渉信号を足して，SIC適用後の計算を可能にする
+        
+        //端末情報を初期化
+        for (int i = 1; i < num_IoT; i++) {
+            pair<double, double> device_pos = coordinate();
+            double dst_to_FBS = cal_dst(device_pos, origin);
+            int channel = rand() % C;
+            
+            /* デバイスがすること（原点セルの座標だけ可視化する場合）
+             1.原点セルの基地局との距離を計算し，離れてたらただ干渉信号として足す
+             〜近い場合
+             1.（比較的近い基地局リストの）全基地局との距離を計算して，一番近い基地局を探す．
+             2.基地局までの距離から，割り当てられる送信電力を計算する
+             3.
+             〜原点セルにデバイスがある場合　割り当てられた電力で信号を足す（フェージングは推定できないとする）
+             〜原点セル以外の場合　原点セルの基地局への干渉信号として電力を足す
+             */
+            
+            double H = exp_dist(1.0);
+            if (dst_to_FBS > 5.0) {
+                SI += H / pow(0.5 / dst_to_FBS, alpha);
+            } else {
+                double dst_to_NBS = dst_to_FBS;
+                int cell_num = 0, level = 0;
+                for (int k = 1; k < num_near_BS; k++) {
+                    double tmp_dst = cal_dst(device_pos, near_BS_pos.at(k));
+                    if (tmp_dst < dst_to_NBS) {
+                        dst_to_NBS = tmp_dst;
+                        cell_num = k;
+                        break;
+                    }
+                }
+                for (int l = L - 1; ;l--) { //電力レベル決定
+                    if (sqrt((double)l / L) < dst_to_NBS) { //Radius.at(l) < dst_to_NBS
+                        level = l;
+                        break;
+                    }
+                }
+                
+                if (cell_num == 0) { //原点セルにデバイスがある場合
+                    coef = theta * pow(theta + 1, L - level - 1) * H;
+                    IF_in_cell.at(channel) += coef;  //原点セルの干渉信号和．自分の信号含む
+                    int m = 0;
+                    while (ACL.at(channel).at(level).at(m) != 0) m++;
+                    ACL.at(channel).at(level).at(m) = coef;
+                    
+//                    if (ACL.at(channel).at(level).at(0) == 0) ACL.at(channel).at(level).at(0) = coef; //(acl.at(level) == 0) acl.at(level) = coef;
+//                    else {
+//                        FAIL_FLAG.at(channel) = level;
+//                        //fail_flag = level; //このレベルの衝突フラグを立てる
+//                    }
+                } else {
+                    SI += theta * pow(theta + 1, L - level - 1) * H * pow(dst_to_NBS, alpha) / pow(dst_to_FBS, alpha);
+                }
+            }
+            
+        }
+        
+        
+        for (int i = 0; i < C; i++) {
+            for (int j = 0; j < L; j++) {
+                double sub = 0, tmp = 0;
+                for (int k = 0; ; k++) {
+                    if (ACL.at(i).at(j).at(k) == 0) {
+                        IF_in_cell.at(i) -= sub;
+                        break;
+                    }
+                    double P = ACL.at(i).at(j).at(k);
+                    double SINR = P / (SI / (double)C + IF_in_cell.at(i) - P + noise);
+                    if (SINR > theta) {
+                        success++;
+                        if (tmp < P) tmp = P;
+                        sub = tmp;
+                    }
+                }
+            }
+        }
+        
+        
+//        for (int j = 0; j < C; j++) {
+//            int FF = FAIL_FLAG.at(j);
+//            for (int i = 0; i < FF; i++) {
+//                double P  = ACL.at(j).at(i).at(0); //チャネルj，レベルi の電力 //acl.at(i);
+//                IF_in_cell.at(j) -= P;//si -= P;
+//                double SINR = P / (SI / (double)C + IF_in_cell.at(j) + noise);
+//                //cout << SINR << endl;
+//                if (SINR > theta) success++;
+//                else break;
+//            }
+//        }
+        
+        
+        //cout << s << endl;
+        
+        //outputfile << success / end_time << endl;
+        
+        
+        //進捗状況を表示
+        double progress = t / end_time;
+        if (progress > 0.8 && p_flag[3]) {cout << "...80%"; p_flag[3] = false;}
+        else if (progress > 0.6 && p_flag[2]) {cout << "...60%"; p_flag[2] = false;}
+        else if (progress > 0.4 && p_flag[1]) {cout << "...40%"; p_flag[1] = false;}
+        else if (progress > 0.2 && p_flag[0]) {cout << "...20%"; p_flag[0] = false;}
+    }
+    cout << "...100%" << endl;
+    cout << lambda_IoT << " " << success / end_time << endl;
+    
+}
+
+
 //送信成功確率 分布作成
 void success_dist() {
     //データ読み込み
-    string filename0 = "1_NOMA_L3_dst.txt";
+    string filename0 = "3_NOMA_52.txt";
     vector<pair<double, double>> suc_dist;
     ifstream readingfile;
     readingfile.open(filename0);
-    ifstream ifs("1_NOMA_L3_dst.txt");
+    ifstream ifs("3_NOMA_52.txt");
         if (ifs.fail()) {
            cerr << "Cannot open file\n";
            exit(0);
@@ -630,11 +649,11 @@ int main() {
         filename = to_string((int)k) + "_NOMA_" + to_string((int)L) + ".txt";
         outputfile.open(filename);
         PA_NOMA_pr(k, alpha, 0, L, C);
-    } else if (key == 3) {
+    } else if (key == 3) { //Throughput
         double L; cout << "Power level : "; cin >> L; cout << endl;
         int C; cout << "Channel num : "; cin >> C; cout << endl;
-        filename = to_string((int)k) + "_NOMA_" + to_string((int)L) + "thp.txt";
-        outputfile.open(filename);
+        //filename = to_string((int)k) + "_NOMA_" + to_string((int)L) + "thp.txt";
+        //outputfile.open(filename);
         PA_NOMA_thp(k, alpha, 0, L, C);
     }
 
