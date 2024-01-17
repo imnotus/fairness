@@ -547,23 +547,23 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
            exit(0);
         }
     
-    int num_BS = poisson_dist(PI * radius * radius * lambda_BS);
+    //int num_BS = poisson_dist(PI * radius * radius * lambda_BS);
     //BSの座標を設定
     pair<double, double> origin = make_pair(0, 0);
     
     vector<pair<double, double>> near_BS_pos; //原点に近いセルだけ電力制御することにする．近い座標だけ保存
     near_BS_pos.push_back(origin);
     
-    int num_near_BS = (int)near_BS_pos.size();  //参照避け
     double x, y;
     while (ifs >> x >> y) {
         pair<double, double> BS_pos = make_pair(x, y);
         double dst = cal_dst(origin, BS_pos);
-        if (dst < 20.0) {
+        if (dst < 7.0) {
             near_BS_pos.push_back(BS_pos);
         }
     }
     ifs.close();
+    int num_near_BS = (int)near_BS_pos.size();  //参照避け
     
     
     double success = 0;
@@ -572,7 +572,7 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
     cout << "Progress is 0%";
     for (int t = 0; t < end_time; t++) {
         int num_IoT = poisson_dist(PI * radius * radius * lambda_IoT);
-        vector<terminal> device;
+        vector<terminal> device(num_IoT);
         
         //ノイズを入れるならノイズは送信電力の比にする
         double power = 0.0;
@@ -581,39 +581,39 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
         vector<vector<pair<double, double>>> ACL(num_near_BS, vector<pair<double, double>>());
         
         //端末情報を初期化
-        for (int j = 0; j < num_near_BS; j++) {
-            for (int i = 0; i < num_IoT; i++) {
-                pair<double, double> device_pos = coordinate();
-                double dst_to_FBS = cal_dst(device_pos, near_BS_pos.at(j));
+        for (int i = 0; i < num_IoT; i++) {
+            pair<double, double> device_pos = coordinate();
+            double dst_to_O = cal_dst(origin, device_pos);
+            
+            double H = exp_dist(1.0);
+            if (dst_to_O > 5.0) {
+                for (int j = 0; j < num_near_BS; j++) {
+                    SI.at(j) += theta * pow(theta + 1, L - rand() % (int)L - 1) * H * pow(urand() / dst_to_O, alpha);
+                }
+            } else {
+                double dst_to_NBS = dst_to_O;
+                int cell_num = 0, level = 0; //デバイスから一番近い基地局を探す．リストを抜けたら原点が最近接
+                for (int k = 1; k < num_near_BS; k++) {
+                    double tmp_dst = cal_dst(device_pos, near_BS_pos.at(k));
+                    if (tmp_dst < dst_to_NBS) {
+                        dst_to_NBS = tmp_dst;
+                        cell_num = k;
+                    }
+                }
+                for (int l = L - 1; ;l--) { //電力レベル決定
+                    if (sqrt((double)l / L) < dst_to_NBS) {
+                        level = l;
+                        break;
+                    }
+                }
                 
-                double H = exp_dist(1.0);
-                if (dst_to_FBS > 5.0) {
-                    SI.at(j) += theta * pow(theta + 1, L - rand() % (int)L - 1) * H * pow(urand() / dst_to_FBS, alpha);
-                } else {
-                    double dst_to_NBS = dst_to_FBS;
-                    int cell_num = 0, level = 0; //デバイスから一番近い基地局を探す．リストを抜けたら原点が最近接
-                    for (int k = 1; k < num_near_BS; k++) {
-                        double tmp_dst = cal_dst(device_pos, near_BS_pos.at(k));
-                        if (tmp_dst < dst_to_NBS) {
-                            dst_to_NBS = tmp_dst;
-                            cell_num = k;
-                        }
-                    }
-                    for (int l = L - 1; ;l--) { //電力レベル決定
-                        if (sqrt((double)l / L) < dst_to_NBS) {
-                            level = l;
-                            break;
-                        }
-                    }
-                    
-                    if (cell_num == j) {
-                        ACL.at(j).emplace_back(make_pair(power, i));
-                        device.at(i).pos = device_pos;
-                    } else {
-                        power = theta * pow(theta + 1, L - level - 1) * H * pow(dst_to_NBS / dst_to_FBS, alpha);
-                        //干渉信号和．自分の信号含む
-                        SI.at(j) += power;
-                    }
+                for (int j = 0; j < num_near_BS; j++) {
+                    double dst_to_FBS = cal_dst(device_pos, near_BS_pos.at(j));
+                    power = theta * pow(theta + 1, L - level - 1) * H * pow(dst_to_NBS / dst_to_FBS, alpha);
+                    //干渉信号和．自分の信号含む
+                    SI.at(j) += power;
+                    ACL.at(j).emplace_back(make_pair(power, i));
+                    device.at(i).pos = device_pos;
                 }
             }
         }
@@ -650,9 +650,101 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
 }
 
 
+
+void SIC_pos(double lambda_IoT, double alpha, double noise) {
+    //データ読み込み
+    string filename0 = "BS_pos2.txt";
+    //vector<pair<double, double>> bspos;
+    ifstream readingfile;
+    readingfile.open(filename0);
+    ifstream ifs(filename0);
+        if (ifs.fail()) {
+           cerr << "Cannot open file\n";
+           exit(0);
+        }
+    
+    //BSの座標を設定
+    pair<double, double> origin = make_pair(0, 0);
+    
+    vector<pair<double, double>> near_BS_pos; //原点に近いセルだけ電力制御することにする．近い座標だけ保存
+    near_BS_pos.push_back(origin);
+    
+    double x, y;
+    while (ifs >> x >> y) {
+        pair<double, double> BS_pos = make_pair(x, y);
+        double dst = cal_dst(origin, BS_pos);
+        if (dst < 7.0) {
+            near_BS_pos.push_back(BS_pos);
+        }
+    }
+    ifs.close();
+    int num_BS = (int)near_BS_pos.size();
+    
+    double success = 0;
+    cout << "path loss exp : " << alpha << endl;
+    
+    bool p_flag[4] = {true, true, true, true};
+    cout << "Progress is 0%";
+    for (int i = 0; i < end_time; i++) {
+        int num_IoT = poisson_dist(PI * radius * radius * lambda_IoT);
+        vector<terminal> device(num_IoT);
+
+        //BSの座標を設定
+        pair<double, double> BS_pos;
+        pair<double, double> nearest_pos;
+
+        vector<double> SI(num_BS, 0);
+        vector<vector<pair<double, double>>> ACL(num_BS, vector<pair<double, double>>());
+        
+        //端末情報を初期化
+        for (int i = 1; i < num_IoT; i++) {
+            pair<double, double> IoT_pos;
+            IoT_pos = coordinate();
+            
+            for (int j = 0; j < num_BS; j++) {
+                //端末-基地局間のフェージング係数を設定
+                double H = exp_dist(1.0);//gauss_rand(0, 1);
+                double dst2 = cal_dst(IoT_pos, near_BS_pos.at(j));
+                double power = H / pow(dst2, alpha);
+                ACL.at(j).emplace_back(make_pair(power, i));
+                SI.at(j) += power;
+                device.at(i).pos = IoT_pos;
+            }
+            
+        }
+        
+        for (int j = 0; j < num_BS; j++) {
+            sort(ACL.at(i).rbegin(), ACL.at(i).rend());
+            for (int j = 0; j < ACL.at(i).size(); j++) {
+                double P = ACL.at(i).at(j).first;
+                SI.at(i) -= P;
+                double SINR = P / (SI.at(i) + noise);
+                if (SINR > theta) {
+                    success++;
+                    int id = ACL.at(i).at(j).second;
+                    if (j == 0) outputfile << device.at(id).pos.first << " " << device.at(id).pos.second << endl;
+                    else outputfile1 << device.at(id).pos.first << " " << device.at(id).pos.second << endl;
+                } else break;
+            }
+        }
+        
+        
+        //進捗状況を表示
+        double progress = i / end_time;
+        if (progress > 0.8 && p_flag[3]) {cout << "...80%"; p_flag[3] = false;}
+        else if (progress > 0.6 && p_flag[2]) {cout << "...60%"; p_flag[2] = false;}
+        else if (progress > 0.4 && p_flag[1]) {cout << "...40%"; p_flag[1] = false;}
+        else if (progress > 0.2 && p_flag[0]) {cout << "...20%"; p_flag[0] = false;}
+    }
+    cout << "...100%" << endl;
+    cout << lambda_IoT << " " << success / end_time << endl;
+    
+}
+
+
 void gen_BS_pos() {
     int num_BS = poisson_dist(PI * radius * radius * lambda_BS);
-    string filename = "BS_pos2.txt";
+    string filename = "BS_pos3.txt";
     outputfile.open(filename);
     for (int i = 0; i < num_BS; i++) {
         pair<double, double> pos = coordinate();
@@ -710,6 +802,13 @@ int main() {
         outputfile.open(filename);
         PA_NOMA_point_visualize(k, alpha, 0, L, s);
     } else if (key == 6) {
+        string s; cout << "Name : "; cin >> s; cout << endl;
+        filename = to_string(k) + "_SICPoint_" + s + ".txt";
+        outputfile.open(filename);
+        outputfile1.open(filename+"second");
+        SIC_pos(k, alpha, 0);
+        outputfile1.close();
+    } else if (key == 7) {
         gen_BS_pos();
     }
 
