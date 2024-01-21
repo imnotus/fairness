@@ -6,7 +6,7 @@ float inf = numeric_limits<float>::infinity();
 using ll = long long;
 const double radius = 100;
 const double GAMMA = pow(10, 6.0 / 10.0);
-const double end_time = 1000;
+const double end_time = 10000;
 constexpr double PI = 3.14159265358979323846264338;
 const double theta = pow(10, 0.4);
 //const double delta = 2.0 / pass_loss_exponent;
@@ -29,7 +29,7 @@ struct terminal {
     //double to_BS[num_BS];
     double dst_to_BS;
     double dst_to_FBS;
-    int nearest_BS;
+    int nearest_BS_id;
     double level;
     double power;
     double IF_to_FBS;
@@ -300,11 +300,21 @@ void SIC_pr(double lambda_IoT, double alpha, double noise) {
 
 
 //Power allocation Probability by distance
-void PA_NOMA_pr_dst(double lambda_IoT, double alpha, double noise, double L, int C, string s) {
+void PA_NOMA_pr_dst(double lambda_IoT, double alpha, double noise, double L, int C, string s, double D) {
     double success = 0;
     cout << "path loss exp : " << alpha << endl;
     
     bool p_flag[4] = {true, true, true, true};
+    vector<double> coef(L);
+    if (D == 0) {
+        if (L == 2) coef = {0, 0.47164};
+        else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+    } else {
+        for (int i = 0; i < L; i++) {
+            coef.at(i) = D * sqrt(i / L);
+        }
+    }
 
     cout << "Progress is 0%";
     for (int t = 0; t < end_time; t++) {
@@ -337,7 +347,7 @@ void PA_NOMA_pr_dst(double lambda_IoT, double alpha, double noise, double L, int
         //原点デバイス
         double dst_0 = cal_dst(origin, FBS_pos), level_d0;
         for (int l = L - 1; ;l--) { //電力レベル決定
-            if (sqrt((double)l / L) < dst_0) { //Radius.at(l) < dst_to_NBS
+            if (coef.at(l) < dst_0) { //Radius.at(l) < dst_to_NBS
                 level_d0 = l;
                 break;
             }
@@ -434,6 +444,16 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C,
     cout << "path loss exp : " << alpha << endl;
     
     bool p_flag[4] = {true, true, true, true};
+    vector<double> coef(L);
+    if (D == 0) {
+        if (L == 2) coef = {0, 0.47164};
+        else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+    } else {
+        for (int i = 0; i < L; i++) {
+            coef.at(i) = D * sqrt(i / L);
+        }
+    }
     
     cout << "Progress is 0%";
     for (int t = 0; t < end_time; t++) {
@@ -488,7 +508,7 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C,
                     }
                 }
                 for (int l = L - 1; ;l--) { //電力レベル決定
-                    if (D * sqrt((double)l / L) < dst_to_NBS) {
+                    if (coef.at(l) < dst_to_NBS) {
                         level = l;
                         break;
                     }
@@ -535,7 +555,7 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C,
 
 
 //Point visualization Power allocation
-void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, double L, string s) {
+void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, double L, string s, double D) {
     //データ読み込み
     string filename0 = "BS_pos2.txt";
     //vector<pair<double, double>> bspos;
@@ -558,12 +578,23 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
     while (ifs >> x >> y) {
         pair<double, double> BS_pos = make_pair(x, y);
         double dst = cal_dst(origin, BS_pos);
-        if (dst < 7.0) {
+        if (dst < 5.0) {
             near_BS_pos.push_back(BS_pos);
         }
     }
     ifs.close();
     int num_near_BS = (int)near_BS_pos.size();  //参照避け
+    
+    vector<double> coef(L);
+    if (D == 0) {
+        if (L == 2) coef = {0, 0.47164};
+        else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+    } else {
+        for (int i = 0; i < L; i++) {
+            coef.at(i) = D * sqrt(i / L);
+        }
+    }
     
     
     double success = 0;
@@ -600,8 +631,9 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
                         cell_num = k;
                     }
                 }
+                device.at(i).nearest_BS_id = cell_num;
                 for (int l = L - 1; ;l--) { //電力レベル決定
-                    if (sqrt((double)l / L) < dst_to_NBS) {
+                    if (coef.at(l) < dst_to_NBS) {
                         level = l;
                         break;
                     }
@@ -622,12 +654,13 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
         for (int i = 0; i < num_near_BS; i++) {
             sort(ACL.at(i).rbegin(), ACL.at(i).rend());
             for (int j = 0; j < ACL.at(i).size(); j++) {
+                int id = ACL.at(i).at(j).second;
+                if (device.at(id).nearest_BS_id != i) continue;
                 double P = ACL.at(i).at(j).first;
                 SI.at(i) -= P;
                 double SINR = P / (SI.at(i) + noise);
                 if (SINR > theta) {
                     success++;
-                    int id = ACL.at(i).at(j).second;
                     outputfile << device.at(id).pos.first << " " << device.at(id).pos.second << endl;
                 } else break;
             }
@@ -673,7 +706,7 @@ void SIC_pos(double lambda_IoT, double alpha, double noise) {
     while (ifs >> x >> y) {
         pair<double, double> BS_pos = make_pair(x, y);
         double dst = cal_dst(origin, BS_pos);
-        if (dst < 7.0) {
+        if (dst < 5.0) {
             near_BS_pos.push_back(BS_pos);
         }
     }
@@ -699,27 +732,34 @@ void SIC_pos(double lambda_IoT, double alpha, double noise) {
             double dst = cal_dst(origin, IoT_pos);
             if (dst > 5.0) continue;
             
+            double nd = dst;
+            int nd_id = 0;
             for (int j = 0; j < num_BS; j++) {
                 //端末-基地局間のフェージング係数を設定
                 double H = exp_dist(1.0);//gauss_rand(0, 1);
                 double dst2 = cal_dst(IoT_pos, near_BS_pos.at(j));
+                if (dst2 < nd) {
+                    nd = dst2;
+                    nd_id = j;
+                }
                 double power = H / pow(dst2, alpha);
                 ACL.at(j).emplace_back(make_pair(power, i));
                 SI.at(j) += power;
                 device.at(i).pos = IoT_pos;
             }
-            
+            device.at(i).nearest_BS_id = nd_id;
         }
         
         for (int i = 0; i < num_BS; i++) {
             sort(ACL.at(i).rbegin(), ACL.at(i).rend());
             for (int j = 0; j < 2; j++) {
+                int id = ACL.at(i).at(j).second;
+                if (device.at(id).nearest_BS_id != i) continue; //一番近い基地局へのアクセスだけ見る(重複カウント回避)
                 double P = ACL.at(i).at(j).first;
                 SI.at(i) -= P;
                 double SINR = P / (SI.at(i) + noise + 0.001);
                 if (SINR > theta) {
                     success++;
-                    int id = ACL.at(i).at(j).second;
                     if (j == 0) outputfile << device.at(id).pos.first << " " << device.at(id).pos.second << endl;
                     else outputfile1 << device.at(id).pos.first << " " << device.at(id).pos.second << endl;
                 } else break;
@@ -746,6 +786,16 @@ void av_num_level(double lambda_IoT, double L, double D) {
     vector<double> av_level(L, 0);
     
     bool p_flag[4] = {true, true, true, true};
+    vector<double> coef(L);
+    if (D == 0) {
+        if (L == 2) coef = {0, 0.47164};
+        else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+    } else {
+        for (int i = 0; i < L; i++) {
+            coef.at(i) = D * sqrt(i / L);
+        }
+    }
     
     cout << "Progress is 0%";
     for (int t = 0; t < end_time; t++) {
@@ -784,7 +834,7 @@ void av_num_level(double lambda_IoT, double L, double D) {
                     }
                 }
                 for (int l = L - 1; ;l--) { //電力レベル決定
-                    if (D * sqrt((double)l / L) < dst_to_NBS) {
+                    if (coef.at(l) < dst_to_NBS) {
                         level = l;
                         sum_level.at(l)++;
                         break;
@@ -812,9 +862,7 @@ void av_num_level(double lambda_IoT, double L, double D) {
     for (int i = 0; i < L; i++) {
         cout << i+1 << " " << av_level.at(i) / end_time << endl;
     }
-    
 }
-
 
 
 
@@ -857,10 +905,11 @@ int main() {
     } else if (key == 2) {
         double L; cout << "Power level : "; cin >> L;
         int C; cout << "Channel num : "; cin >> C;
-        string s; cout << "Name : "; cin >> s; cout << endl;
+        string s; cout << "Name : "; cin >> s;
+        double D; cout << "Voronoi Radius :"; cin >> D; cout << endl;
         filename = to_string((int)k) + "_NOMA_" + to_string((int)L) + "_" + to_string((int)C) + s + ".txt";
         outputfile.open(filename);
-        PA_NOMA_pr_dst(k, alpha, 0, L, C, s);
+        PA_NOMA_pr_dst(k, alpha, 0, L, C, s, D);
     } else if (key == 3) { //Throughput
         double L; cout << "Power level : "; cin >> L;
         int C; cout << "Channel num : "; cin >> C;
@@ -875,13 +924,14 @@ int main() {
         success_dist(k, L, C, s);
     } else if (key == 5) {
         double L; cout << "Power level : "; cin >> L;
+        double D; cout << "Voronoi Radius :"; cin >> D;
         string s; cout << "Name : "; cin >> s; cout << endl;
-        filename = to_string(k) + "_PAPoint_" + to_string(L) + "_" + s + ".txt";
+        filename = to_string((int)k) + "_PAPoint_" + to_string((int)L) + "_" + s + ".txt";
         outputfile.open(filename);
-        PA_NOMA_point_visualize(k, alpha, 0, L, s);
+        PA_NOMA_point_visualize(k, alpha, 0, L, s, D);
     } else if (key == 6) {
         string s; cout << "Name : "; cin >> s; cout << endl;
-        filename = to_string(k) + "_SICPoint_" + s;
+        filename = to_string((int)k) + "_SICPoint_" + s;
         outputfile.open(filename+".txt");
         outputfile1.open(filename+"second.txt");
         SIC_pos(k, alpha, 0);
