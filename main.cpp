@@ -40,7 +40,7 @@ struct terminal {
 };
 
 
-double urand(){
+double urand(){ //0-1
     double m, a;
     m = RAND_MAX + 1.0;
     a = (rand() + 0.5)/m;
@@ -133,6 +133,7 @@ double poisson(double lambda) {
 void success_dist(int lambda, int L, int C, string s) {
     //データ読み込み
     string filename0 = to_string(lambda) + "_NOMA_" + to_string(L) + "_" + to_string(C) + s + ".txt";
+    //string filename0 = "5_ALOHA_dst.txt";
     vector<pair<double, double>> suc_dist;
     ifstream readingfile;
     readingfile.open(filename0);
@@ -166,10 +167,11 @@ void success_dist(int lambda, int L, int C, string s) {
     }
     
     for (int i = 1; i <= 20; i++) {
-        cout << 0.05 * i << " " << suc_sum.at(i-1) / total.at(i-1) << endl;
+        cout << 0.05 * i << " " << suc_sum.at(i-1) / total.at(i-1) << " " << suc_sum.at(i-1) << " " << total.at(i-1) << endl;
     }
     
 }
+
 
 
 
@@ -300,16 +302,24 @@ void SIC_pr(double lambda_IoT, double alpha, double noise) {
 
 
 //Power allocation Probability by distance
+//原点にデバイスを一台置いて，そのデバイスが送信に成功した時の位置を記録
+//あるスロットの全デバイスを調査した方がいいかも
 void PA_NOMA_pr_dst(double lambda_IoT, double alpha, double noise, double L, int C, string s, double D) {
     double success = 0;
     cout << "path loss exp : " << alpha << endl;
     
     bool p_flag[4] = {true, true, true, true};
     vector<double> coef(L);
-    if (D == 0) {
+    if (D == 0) { //電力配分最適化
         if (L == 2) coef = {0, 0.47164};
         else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 4) coef = {0, 0.175, 0.38608, 0.67117};
         else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+        else if (L == 6) coef = {0, 0.1073693, 0.2292, 0.364867, 0.532356, 0.76407};
+        else if (L == 7) coef = {0, 0.090711, 0.189755, 0.299831, 0.428612, 0.581466, 0.798057};
+        else if (L == 8) coef = {0, 0.07778, 0.1625, 0.2547469, 0.3570889, 0.475923, 0.61921, 0.828777};
+        else if (L == 9) coef = {0, 0.068333, 0.1428356, 0.22055, 0.306667, 0.736885, 0.516842, 0.65526, 0.8447569};
+        else if (L == 10) coef = {0, 0.06166, 0.125667, 0.195537, 0.27069, 0.35214, 0.443844, 0.551359, 0.68066, 0.8680};
     } else {
         for (int i = 0; i < L; i++) {
             coef.at(i) = D * sqrt(i / L);
@@ -352,6 +362,7 @@ void PA_NOMA_pr_dst(double lambda_IoT, double alpha, double noise, double L, int
                 break;
             }
         }
+        //if (L==1) level_d0 = 0;
         double P = theta * pow(theta + 1, L - level_d0 - 1) * exp_dist(1.0);
         ACL.emplace_back(P); SI += P;
         int cha_d0 = rand() % C;
@@ -373,16 +384,16 @@ void PA_NOMA_pr_dst(double lambda_IoT, double alpha, double noise, double L, int
             if (channel != cha_d0) continue; //別のチャネルは無視して良い
             
             double H = exp_dist(1.0);
-            if (dst_to_FBS > 5.0) {
+            if (dst_to_FBS > 20.0) {
                 SI += theta * pow(theta + 1, L - rand() % (int)L - 1) * H * pow(urand() / dst_to_FBS, alpha);
             } else {
-                double dst_to_NBS = inf;
+                double dst_to_NBS = dst_to_FBS;
                 int cell_num = 0, level = 0;
                 for (int k = 0; k < num_near_BS; k++) {
                     double tmp_dst = cal_dst(device_pos, near_BS_pos.at(k));
                     if (tmp_dst < dst_to_NBS) {
                         dst_to_NBS = tmp_dst;
-                        cell_num = k;
+                        cell_num = -1;
                     }
                 }
                 for (int l = L - 1; ;l--) { //電力レベル決定
@@ -406,13 +417,13 @@ void PA_NOMA_pr_dst(double lambda_IoT, double alpha, double noise, double L, int
         for (int i = 0; i < ACL.size(); i++) {
             SI -= ACL.at(i);
             double SINR = P / (SI + noise);
+            //cout << P << " " << ACL.at(i) << " " << SINR << " " << dst_0 << " " << i << endl;
             if (SINR > theta) {
                 if (ACL.at(i) == P) {
                     flag = 1; success++;
                     break;
                 }
             } else break;
-            
         }
         
         
@@ -448,10 +459,16 @@ void PA_NOMA_thp(double lambda_IoT, double alpha, double noise, double L, int C,
     if (D == 0) {
         if (L == 2) coef = {0, 0.47164};
         else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 4) coef = {0, 0.175, 0.38608, 0.67117};
         else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+        else if (L == 6) coef = {0, 0.1073693, 0.2292, 0.364867, 0.532356, 0.76407};
+        else if (L == 7) coef = {0, 0.090711, 0.189755, 0.299831, 0.428612, 0.581466, 0.798057};
+        else if (L == 8) coef = {0, 0.07778, 0.1625, 0.2547469, 0.3570889, 0.475923, 0.61921, 0.828777};
+        else if (L == 9) coef = {0, 0.068333, 0.1428356, 0.22055, 0.306667, 0.736885, 0.516842, 0.65526, 0.8447569};
+        else if (L == 10) coef = {0, 0.06166, 0.125667, 0.195537, 0.27069, 0.35214, 0.443844, 0.551359, 0.68066, 0.8680};
     } else {
         for (int i = 0; i < L; i++) {
-            coef.at(i) = D * sqrt(i / L);
+            coef.at(i) = D * sqrt(i / L / PI);
         }
     }
     
@@ -589,7 +606,13 @@ void PA_NOMA_point_visualize(double lambda_IoT, double alpha, double noise, doub
     if (D == 0) {
         if (L == 2) coef = {0, 0.47164};
         else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 4) coef = {0, 0.175, 0.38608, 0.67117};
         else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+        else if (L == 6) coef = {0, 0.1073693, 0.2292, 0.364867, 0.532356, 0.76407};
+        else if (L == 7) coef = {0, 0.090711, 0.189755, 0.299831, 0.428612, 0.581466, 0.798057};
+        else if (L == 8) coef = {0, 0.07778, 0.1625, 0.2547469, 0.3570889, 0.475923, 0.61921, 0.828777};
+        else if (L == 9) coef = {0, 0.068333, 0.1428356, 0.22055, 0.306667, 0.736885, 0.516842, 0.65526, 0.8447569};
+        else if (L == 10) coef = {0, 0.06166, 0.125667, 0.195537, 0.27069, 0.35214, 0.443844, 0.551359, 0.68066, 0.8680};
     } else {
         for (int i = 0; i < L; i++) {
             coef.at(i) = D * sqrt(i / L);
@@ -781,7 +804,7 @@ void SIC_pos(double lambda_IoT, double alpha, double noise) {
 
 
 
-//Throughput of Power allocation
+//Power allocation , number of device of each level
 void av_num_level(double lambda_IoT, double L, double D) {
     vector<double> av_level(L, 0);
     
@@ -790,7 +813,13 @@ void av_num_level(double lambda_IoT, double L, double D) {
     if (D == 0) {
         if (L == 2) coef = {0, 0.47164};
         else if (L == 3) coef = {0, 0.36497, 0.595226};
+        else if (L == 4) coef = {0, 0.175, 0.38608, 0.67117};
         else if (L == 5) coef = {0, 0.267434, 0.4051755, 0.545601, 0.720014};
+        else if (L == 6) coef = {0, 0.1073693, 0.2292, 0.364867, 0.532356, 0.76407};
+        else if (L == 7) coef = {0, 0.090711, 0.189755, 0.299831, 0.428612, 0.581466, 0.798057};
+        else if (L == 8) coef = {0, 0.07778, 0.1625, 0.2547469, 0.3570889, 0.475923, 0.61921, 0.828777};
+        else if (L == 9) coef = {0, 0.068333, 0.1428356, 0.22055, 0.306667, 0.736885, 0.516842, 0.65526, 0.8447569};
+        else if (L == 10) coef = {0, 0.06166, 0.125667, 0.195537, 0.27069, 0.35214, 0.443844, 0.551359, 0.68066, 0.8680};
     } else {
         for (int i = 0; i < L; i++) {
             coef.at(i) = D * sqrt(i / L);
